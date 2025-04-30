@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🎨 Advanced QR Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Custom styles for color picker, theme transitions, and QR patterns */
+    input[type="color"] {
+      @apply w-10 h-10 border-none rounded-md cursor-pointer;
+    }
+    .theme-transition {
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    .dot-pattern {
+      background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
+      background-size: 10px 10px;
+    }
+    .square-pattern {
+      background-image: linear-gradient(45deg, currentColor 25%, transparent 25%, transparent 75%, currentColor 75%, currentColor),
+                        linear-gradient(45deg, currentColor 25%, transparent 25%, transparent 75%, currentColor 75%, currentColor);
+      background-size: 10px 10px;
+      background-position: 0 0, 5px 5px;
+    }
+    .cached-qr {
+      @apply flex items-center gap-2 p-2 bg-gray-100 dark:bg-gray-700 rounded-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-100 dark:bg-gray-900 theme-transition">
+  <div class="w-full px-4 sm:px-6 lg:px-8 py-6">
+    <div class="flex flex-col md:flex-row md:justify-between md:items-center mb-6">
+      <h1 class="text-3xl font-bold text-gray-800 dark:text-white">🎨 QR Code Studio</h1>
+      <select id="themeSelect" class="p-2 rounded-md bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-white">
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+        <option value="blue">Blue</option>
+        <option value="green">Green</option>
+      </select>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <!-- Input Controls -->
+      <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg theme-transition">
+        <input type="text" id="text" placeholder="Enter text or URL" class="w-full p-3 mb-4 border rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
+
+        <div class="grid grid-cols-1 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">🎯 Foreground Color</label>
+            <div class="flex items-center gap-2">
+              <input type="text" id="fgHex" value="#000000" maxlength="7" class="p-2 w-20 text-center rounded-md bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white" />
+              <input type="color" id="fgColor" value="#000000" />
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">🌈 Background Color</label>
+            <div class="flex items-center gap-2">
+              <input type="text" id="bgHex" value="#ffffff" maxlength="7" class="p-2 w-20 text-center rounded-md bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white" />
+              <input type="color" id="bgColor" value="#ffffff" />
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">📏 QR Size</label>
+            <input type="range" id="qrSize" min="100" max="500" value="256" class="w-full" />
+            <span id="sizeLabel" class="text-sm text-gray-600 dark:text-gray-400">256px</span>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">🖌️ QR Style</label>
+            <select id="qrStyle" class="w-full p-2 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white">
+              <option value="dot" selected>Dot</option>
+              <option value="square">Square</option>
+              <option value="rounded">Rounded</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">🖼️ Logo (Optional)</label>
+          <input type="file" id="logoInput" accept="image/*" class="w-full p-2 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white" />
+        </div>
+
+        <div class="flex gap-4 mb-4">
+          <button onclick="generateQR()" class="flex-1 p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Generate QR</button>
+          <button onclick="downloadQR()" class="flex-1 p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">Download QR</button>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">📚 Cached QRs</label>
+          <div id="cachedQRs" class="flex flex-col gap-2 max-h-40 overflow-y-auto"></div>
+          <button onclick="clearCache()" class="mt-2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition w-full">Clear Cache</button>
+        </div>
+      </div>
+
+      <!-- QR Preview -->
+      <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg theme-transition flex justify-center items-center">
+        <div id="qrcode"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QRCodeJS library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    // Theme management
+    const themeSelect = document.getElementById('themeSelect');
+    const themes = {
+      light: { bg: 'bg-gray-100', text: 'text-gray-800', container: 'bg-white' },
+      dark: { bg: 'bg-gray-900', text: 'text-white', container: 'bg-gray-800' },
+      blue: { bg: 'bg-blue-100', text: 'text-blue-900', container: 'bg-blue-50' },
+      green: { bg: 'bg-green-100', text: 'text-green-900', container: 'bg-green-50' }
+    };
+
+    themeSelect.addEventListener('change', () => {
+      const theme = themes[themeSelect.value];
+      document.body.className = `min-h-screen ${theme.bg} theme-transition`;
+      document.querySelectorAll('.theme-transition').forEach(el => {
+        if (el.classList.contains('bg-white') || el.classList.contains('bg-gray-800') || el.classList.contains('bg-blue-50') || el.classList.contains('bg-green-50')) {
+          el.className = el.className.replace(/(bg-white|bg-gray-800|bg-blue-50|bg-green-50)/, theme.container) + ' theme-transition';
+        }
+      });
+    });
+
+    // Input elements
+    const textInput = document.getElementById('text');
+    const fgColorInput = document.getElementById('fgColor');
+    const bgColorInput = document.getElementById('bgColor');
+    const fgHex = document.getElementById('fgHex');
+    const bgHex = document.getElementById('bgHex');
+    const qrSize = document.getElementById('qrSize');
+    const sizeLabel = document.getElementById('sizeLabel');
+    const qrStyle = document.getElementById('qrStyle');
+    const logoInput = document.getElementById('logoInput');
+    const cachedQRs = document.getElementById('cachedQRs');
+
+    // Sync color inputs
+    fgColorInput.addEventListener('input', () => { fgHex.value = fgColorInput.value; updatePreview(); });
+    fgHex.addEventListener('input', () => { fgColorInput.value = fgHex.value; updatePreview(); });
+    bgColorInput.addEventListener('input', () => { bgHex.value = bgColorInput.value; updatePreview(); });
+    bgHex.addEventListener('input', () => { bgColorInput.value = bgHex.value; updatePreview(); });
+    qrSize.addEventListener('input', () => { sizeLabel.textContent = `${qrSize.value}px`; updatePreview(); });
+    qrStyle.addEventListener('change', updatePreview);
+    logoInput.addEventListener('change', updatePreview);
+    textInput.addEventListener('input', updatePreview);
+
+    let qr;
+    let debounceTimer;
+
+    // Real-time preview with debounce
+    function updatePreview() {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        generateQR(false);
+      }, 300);
+    }
+
+    // Cache management
+    function saveToCache(qrData) {
+      let cache = JSON.parse(localStorage.getItem('qrCache') || '[]');
+      cache = cache.filter(item => item.text !== qrData.text); // Avoid duplicates
+      cache.unshift(qrData);
+      if (cache.length > 10) cache.pop(); // Limit to 10 items
+      localStorage.setItem('qrCache', JSON.stringify(cache));
+      renderCachedQRs();
+    }
+
+    function renderCachedQRs() {
+      const cache = JSON.parse(localStorage.getItem('qrCache') || '[]');
+      cachedQRs.innerHTML = '';
+      cache.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = 'cached-qr';
+        div.innerHTML = `
+          <span class="text-sm text-gray-800 dark:text-white truncate">${item.text}</span>
+          <button class="text-red-500 hover:text-red-700" onclick="deleteCachedQR(${index})">✕</button>
+        `;
+        div.onclick = (e) => {
+          if (e.target.tagName !== 'BUTTON') {
+            textInput.value = item.text;
+            fgColorInput.value = item.fgColor;
+            fgHex.value = item.fgColor;
+            bgColorInput.value = item.bgColor;
+            bgHex.value = item.bgColor;
+            qrSize.value = item.size;
+            sizeLabel.textContent = `${item.size}px`;
+            qrStyle.value = item.style;
+            updatePreview();
+          }
+        };
+        cachedQRs.appendChild(div);
+      });
+    }
+
+    function deleteCachedQR(index) {
+      let cache = JSON.parse(localStorage.getItem('qrCache') || '[]');
+      cache.splice(index, 1);
+      localStorage.setItem('qrCache', JSON.stringify(cache));
+      renderCachedQRs();
+    }
+
+    function clearCache() {
+      localStorage.removeItem('qrCache');
+      renderCachedQRs();
+    }
+
+    function generateQR(save = true) {
+      if (typeof QRCode !== 'function') {
+        console.error('QRCode library not loaded');
+        alert('QRCode library failed to load. Please try refreshing the page.');
+        return;
+      }
+
+      const text = textInput.value || 'https://example.com';
+      const fgColor = fgColorInput.value;
+      const bgColor = bgColorInput.value;
+      const size = parseInt(qrSize.value);
+      const style = qrStyle.value;
+      const logo = logoInput.files[0];
+
+      const qrcodeEl = document.getElementById('qrcode');
+      qrcodeEl.innerHTML = ''; // Clear previous
+
+      try {
+        qr = new QRCode(qrcodeEl, {
+          text: text,
+          width: size,
+          height: size,
+          colorDark: fgColor,
+          colorLight: bgColor,
+          correctLevel: QRCode.CorrectLevel.H
+        });
+
+        // Apply QR style
+        const canvas = qrcodeEl.querySelector('canvas');
+        if (canvas) {
+          if (style === 'dot') {
+            canvas.classList.add('dot-pattern');
+          } else if (style === 'rounded') {
+            canvas.style.borderRadius = '10px';
+          } else {
+            canvas.classList.add('square-pattern');
+          }
+
+          // Add logo if provided
+          if (logo) {
+            const img = new Image();
+            img.src = URL.createObjectURL(logo);
+            img.onload = () => {
+              const ctx = canvas.getContext('2d');
+              const logoSize = size * 0.2;
+              const x = (size - logoSize) / 2;
+              const y = (size - logoSize) / 2;
+              ctx.drawImage(img, x, y, logoSize, logoSize);
+              URL.revokeObjectURL(img.src);
+              if (save) {
+                saveToCache({ text, fgColor, bgColor, size, style });
+              }
+            };
+          } else if (save) {
+            saveToCache({ text, fgColor, bgColor, size, style });
+          }
+        }
+      } catch (error) {
+        console.error('Error generating QR code:', error);
+        alert('Failed to generate QR code. Please check your inputs and try again.');
+      }
+    }
+
+    function downloadQR() {
+      const canvas = document.querySelector('#qrcode canvas');
+      if (!canvas) return alert("Generate the QR first!");
+
+      const link = document.createElement('a');
+      link.download = 'qr-code.png';
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    }
+
+    // Initialize
+    renderCachedQRs();
+    updatePreview();
+  </script>
+</body>
+</html>
